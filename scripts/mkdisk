@@ -1,0 +1,50 @@
+#!/bin/bash 
+
+. ./init-script 
+
+FILE_NAME="disk.img"
+
+echo "[*] Generate and partition disk"
+dd if=/dev/zero of=disk.img bs=1M count=700 2> /dev/null
+
+echo "[*] Partition disk and format ext4" 
+(
+echo g 
+echo n
+echo
+echo
+echo +200M 
+echo t
+echo 1
+echo n
+echo 
+echo 
+echo 
+echo w
+) | fdisk disk.img > /dev/null 2>&1
+
+kpartx -a disk.img
+
+mkfs.fat -F 32 /dev/mapper/loop0p1 > /dev/null 2>&1
+mkfs.ext4      /dev/mapper/loop0p2 > /dev/null 2>&1
+
+echo "[*] Mount filesystems" 
+mount /dev/mapper/loop0p2 /mnt/
+mkdir -p /mnt/boot/efi 
+mount /dev/mapper/loop0p1 /mnt/boot/efi
+
+echo "[*] Copy rootfs" 
+cp -aRf stage1/* /mnt/
+cp $JOS_PROJECT_DIR/kernel/linux-5.17.6/arch/arm64/boot/Image            /mnt/boot/vmlinuz
+# cp $JOS_PROJECT_DIR/kernel/vmlinuz-virt                                  /mnt/boot/vmlinuz
+# cp $JOS_PROJECT_DIR/kernel/initramfs-virt                                /mnt/boot/initramfs
+
+
+echo "[*] Install grub"
+grub-install --root-directory /mnt/ --target=arm64-efi /dev/loop0 > /dev/null 2>&1
+cp grub.cfg /mnt/boot/grub/
+
+echo "[*] Disconnect partitions" 
+umount /mnt/boot/efi
+umount /mnt 
+kpartx -d /dev/loop0

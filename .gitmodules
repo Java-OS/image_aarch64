@@ -1,0 +1,21 @@
+[submodule "init"]
+	path = submodules/init
+	url = git@github.com:Java-OS/init.git
+[submodule "jsysbox"]
+	path = submodules/jos-enginejsysbox
+	url = git@github.com:Java-OS/jsysbox.git
+[submodule "jos-engine"]
+	path = submodules/jos-engine
+	url = git@github.com:Java-OS/jos-engine.git
+[submodule "submodules/kernel"]
+	path = submodules/kernel
+	url = git@github.com:Java-OS/kernel.git
+[submodule "submodules/jsysbox"]
+	path = submodules/jsysbox
+	url = git@github.com:Java-OS/jsysbox.git
+[submodule "submodules/jos-engine"]
+	path = submodules/jos-engine
+	url = git@github.com:Java-OS/jos-engine.git
+[submodule "submodules/init"]
+	path = submodules/init
+	url = git@github.com:Java-OS/init.git

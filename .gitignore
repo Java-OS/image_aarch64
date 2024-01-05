@@ -1,0 +1,11 @@
+jos.iso 
+rootfs
+image/ 
+source/ 
+stage1/ 
+jre/ 
+*.tar
+*.tar.*
+*.img
+*.vmdk
+*.qcow*

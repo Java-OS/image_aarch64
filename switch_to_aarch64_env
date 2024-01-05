@@ -1,0 +1,42 @@
+#!/bin/bash 
+
+if [ $USER != "root" ] ; then
+  echo "Run script as sudo"
+  exit 1;
+fi
+
+
+mkdir -p rootfs/build-system/ 2> /dev/null
+
+fs_umount() {
+  umount rootfs/dev/pts                   2> /dev/null 
+  umount rootfs/dev                       2> /dev/null 
+  umount rootfs/proc                      2> /dev/null 
+  umount rootfs/sys                       2> /dev/null 
+  umount rootfs/build-system/kernel       2> /dev/null
+  umount rootfs/build-system/init         2> /dev/null
+  umount rootfs/build-system/jos-engine   2> /dev/null
+  umount rootfs/build-system              2> /dev/null
+}
+
+
+fs_mount() {
+  mount -o bind /dev rootfs/dev 
+  mount -o bind /sys rootfs/sys
+  mount -t proc proc rootfs/proc 
+  mount -t devpts devpts rootfs/dev/pts
+
+  mount -o bind scripts rootfs/build-system 
+
+  mkdir rootfs/build-system/kernel       2> /dev/null
+  mkdir rootfs/build-system/init         2> /dev/null
+  mkdir rootfs/build-system/jos-engine   2> /dev/null
+  mount -o bind kernel       rootfs/build-system/kernel
+  mount -o bind init         rootfs/build-system/init
+  mount -o bind jos-engine   rootfs/build-system/jos-engine
+}
+
+fs_umount
+fs_mount 
+chroot rootfs /bin/bash
+fs_umount
