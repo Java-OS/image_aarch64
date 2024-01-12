@@ -1,0 +1,91 @@
+#!/bin/bash 
+
+set -e 
+if [[ -z $(groups | grep docker) ]] ; then 
+  echo "Please join to docker group" 
+  echo "usermod -a -G docker $USER" 
+  exit 1
+fi 
+
+if [[ -z $(sudo -l | grep NOPASSWD | grep losetup) ]] ; then 
+  echo "Please add this line to /etc/sudoers.d/build_arm" 
+  echo "$USER ALL=(ALL) NOPASSWD: /usr/sbin/losetup"
+  exit 1
+fi 
+
+if [[ -z $(sudo -l | grep NOPASSWD | grep mount) ]] ; then 
+  echo "Please add this line to /etc/sudoers.d/build_arm" 
+  echo "$USER ALL=(ALL) NOPASSWD: /usr/bin/mount"
+  exit 1
+fi 
+
+if [[ -z $(sudo -l | grep NOPASSWD | grep umount) ]] ; then 
+  echo "Please add this line to /etc/sudoers.d/build_arm" 
+  echo "$USER ALL=(ALL) NOPASSWD: /usr/bin/umount"
+  exit 1
+fi 
+
+if [[ -z $(sudo -l | grep NOPASSWD | grep "bin/cp") ]] ; then 
+  echo "Please add this line to /etc/sudoers.d/build_arm" 
+  echo "$USER ALL=(ALL) NOPASSWD: /usr/bin/cp"
+  exit 1
+fi
+
+export ARCH=arm64
+JOS_PROJECT_DIR="./submodules"
+JOS_ROOTFS_DIR="./rootfs"
+
+rm -rf $JOS_ROOTFS_DIR
+DISK_FILE="disk.img"
+
+(cd submodules/kernel/linux-6.6.10 ; cp ../config-aarch64 .config ; make ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- -j4) 
+(cd submodules/init                ; ./build $ARCH) 
+(cd submodules/jsysbox             ; mvn clean compile package install -DskipTests) 
+(cd submodules/jos-engine          ; mvn clean compile package -DskipTests) 
+
+set +e
+echo "[*] Generate and partition disk"
+truncate -s 700M $DISK_FILE
+
+echo "[*] Partition disk and format ext4" 
+(
+echo g 
+echo n
+echo
+echo
+echo +200M 
+echo t
+echo 1
+echo n
+echo 
+echo 
+echo 
+echo w
+) | fdisk disk.img > /dev/null 2>&1
+
+sudo losetup /dev/loop0 $DISK_FILE
+
+mkfs.fat -F 32 /dev/loop0p1 > /dev/null 2>&1
+mkfs.ext4      /dev/loop0p2 > /dev/null 2>&1
+
+echo "[*] Mount filesystems" 
+mkdir $JOS_ROOTFS_DIR
+sudo mount /dev/loop0p2 $JOS_ROOTFS_DIR
+mkdir -p rootfs/boot/efi 
+sudo mount /dev/loop0p1 $JOS_ROOTFS_DIR/boot/efi
+
+docker run -it --rm \
+  --name=build-aarch64 \
+  -v $PWD/scripts:/scripts \
+  -v $PWD/submodules:/submodules \
+  -v $PWD/$JOS_ROOTFS_DIR:/rootfs \
+  --device=/dev/loop-control:/dev/loop-control \
+  --device=/dev/loop0:/dev/loop0 \
+  --device=/dev/loop0p1:/dev/loop0p1 \
+  --device=/dev/loop0p2:/dev/loop0p2 \
+  mah454/jos-aarch64-build-env:latest /scripts/build_engine 
+
+echo "[*] Disconnect partitions" 
+sudo umount $JOS_ROOTFS_DIR/boot/efi
+sudo umount $JOS_ROOTFS_DIR 
+sudo losetup -d /dev/loop0

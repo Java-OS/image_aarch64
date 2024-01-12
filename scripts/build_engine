@@ -1,0 +1,85 @@
+#!/bin/bash 
+
+export JAVA_HOME=/opt/graalvm-jdk-21.0.1+12.1
+export JOS_PROJECT_DIR="/submodules"
+export JOS_ROOTFS_DIR="/rootfs"
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$JAVA_HOME/bin
+
+rm -rf jre 2> /dev/null
+MODULES=$(cat JAVA_MODULE_LIST | tr "\n" ",")
+jlink --no-header-files --no-man-pages --output jre --add-modules ${MODULES}
+
+# (cd $JOS_PROJECT_DIR/jsysbox    ; mvn clean compile package install -DskipTests)
+# (cd $JOS_PROJECT_DIR/jos-engine ; mvn clean compile package install -DskipTests)
+
+echo "[*] Initialize"
+mkdir -p $JOS_ROOTFS_DIR/modules/{available,enabled}
+mkdir -p $JOS_ROOTFS_DIR/tmp $JOS_ROOTFS_DIR/proc $JOS_ROOTFS_DIR/dev $JOS_ROOTFS_DIR/sys $JOS_ROOTFS_DIR/etc $JOS_ROOTFS_DIR/var/log/ $JOS_ROOTFS_DIR/sbin
+
+echo "[*] Copy init & kernel"
+cp $JOS_PROJECT_DIR/init/target/aarch64-unknown-linux-musl/release/init    $JOS_ROOTFS_DIR/init
+cp $JOS_PROJECT_DIR/kernel/linux-6.6.10/arch/arm64/boot/Image              $JOS_ROOTFS_DIR/boot/vmlinuz
+cp $JOS_PROJECT_DIR/kernel/initramfs-virt                                  $JOS_ROOTFS_DIR/boot/initrd
+
+echo "[*] Copy jre and jos-engine"
+cp -aRf jre                                                     $JOS_ROOTFS_DIR/
+cp -aRf $JOS_PROJECT_DIR/jos-engine/jos-core/target/lib/        $JOS_ROOTFS_DIR/engine/
+cp -aRf $JOS_PROJECT_DIR/jos-engine/etc/*                       $JOS_ROOTFS_DIR/etc/
+
+echo "[*] Fix dependencies"
+chown root:root -R $JOS_ROOTFS_DIR
+
+LIBS=$(find jre/ -type f -exec file {} \; | grep ELF | awk -F ":" '{print $1}')
+
+function copy_deps() {
+	DEPS=$(ldd $1 2> /dev/null | grep "=>" | grep -v not | awk '{print $3}') 
+	for I in ${DEPS[@]} 
+	do 
+		DIR=$(dirname $I) 
+		FNAME=$(basename $I) 
+	
+		mkdir -p $JOS_ROOTFS_DIR/$DIR/ 2> /dev/null
+		cp $I $JOS_ROOTFS_DIR/$DIR/
+	done
+}
+
+function add() {
+	DIR=$(dirname $1) 
+	FNAME=$(basename $1) 
+	mkdir -p $JOS_ROOTFS_DIR/$DIR  
+	if [ -z $2 ] ; then 
+		cp $1 $JOS_ROOTFS_DIR/$DIR/$FNAME 
+	else
+		cp $1 $JOS_ROOTFS_DIR/$2
+	fi
+	copy_deps $1
+}
+
+for I in ${LIBS[@]} 
+do
+	copy_deps $I
+done
+
+mkdir -p $JOS_ROOTFS_DIR/lib64 $JOS_ROOTFS_DIR/usr/lib/aarch64-linux-gnu/ 2> /dev/null
+
+cp $JOS_ROOTFS_DIR/jre/lib/libjli.so $JOS_ROOTFS_DIR/lib/ 
+
+add /lib/ld-linux-aarch64.so.1
+add /usr/lib/aarch64-linux-gnu/libutil.so.1
+add /usr/bin/stty 
+add /usr/bin/tty 
+add /usr/bin/infocmp 
+add /usr/lib/terminfo/x/xterm-256color 
+add /lib/terminfo/l/linux 
+add /lib/aarch64-linux-gnu/libstdc++.so.6 
+add /lib/aarch64-linux-gnu/libgcc_s.so.1 
+add /lib/aarch64-linux-gnu/libm.so.6 
+add /lib/aarch64-linux-gnu/libc.so.6 
+# add /usr/sbin/v86d /sbin/
+
+
+echo "[*] Install grub"
+# grub-install --root-directory $JOS_ROOTFS_DIR --target=arm64-efi /dev/loop0 --bootloader-id=jos > /dev/null 2>&1
+grub-install --root-directory $JOS_ROOTFS_DIR --target=arm64-efi /dev/loop0 > /dev/null 2>&1
+cp grub.cfg $JOS_ROOTFS_DIR/boot/grub/
+
